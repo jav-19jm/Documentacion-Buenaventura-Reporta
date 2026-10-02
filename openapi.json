@@ -1,0 +1,4485 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Buenaventura Reporta API",
+    "version": "1.0.0",
+    "description": "API REST (Laravel 12) de **Buenaventura Reporta**, la plataforma ciudadana para reportar incidencias urbanas en Buenaventura y darles seguimiento con las entidades responsables.\n\n## Autenticación\nSe usa **JWT** (`tymon/jwt-auth`). Obtén el token con `POST /auth/login` y envíalo en cada petición protegida:\n\n```\nAuthorization: Bearer <token>\n```\n\n- El token dura `JWT_TTL` minutos (por defecto 60). Renuévalo con `POST /auth/refresh`, que acepta tokens expirados durante `JWT_REFRESH_TTL` (por defecto 14 días).\n- Las rutas protegidas también exigen que la cuenta esté **activa**: si un administrador la suspende, sus tokens dejan de funcionar al instante (403 `cuenta_inactiva`).\n\n## Roles\n| Rol | Acceso |\n|---|---|\n| `ciudadano` | Crear, votar y comentar reportes; perfil y notificaciones. |\n| `entidad` | Panel de entidad (`/entity/*`) y cambio de estado de sus reportes asignados. |\n| `moderador` | Cambiar estado de cualquier reporte y participar en todos los chats. |\n| `administrador` | Todo lo anterior y el panel de administración (`/admin/*`). |\n\n## Convenciones\n- Todos los identificadores son **UUID**; cualquier otro valor en la ruta responde 404.\n- Las respuestas son JSON **sin envoltorio** `data`.\n- Los errores de validación responden **422** con `message` y `errors` por campo.\n- `latitud` y `longitud` se devuelven como **cadenas** con 7 decimales (p. ej. `\"3.8801000\"`).\n- Las fechas se devuelven en ISO 8601 (UTC).\n- Las imágenes se suben con `multipart/form-data` y se sirven desde `/storage`.",
+    "contact": {
+      "name": "Equipo Buenaventura Reporta"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api",
+      "description": "Desarrollo local (php artisan serve)"
+    },
+    {
+      "url": "{protocolo}://{host}/api",
+      "description": "Servidor personalizado",
+      "variables": {
+        "protocolo": {
+          "default": "https",
+          "enum": [
+            "https",
+            "http"
+          ]
+        },
+        "host": {
+          "default": "api.buenaventura-reporta.com",
+          "description": "Dominio donde está desplegada la API."
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "Sistema",
+      "description": "Comprobación de estado."
+    },
+    {
+      "name": "Autenticación",
+      "description": "Registro, inicio de sesión (JWT), verificación de correo y recuperación de contraseña."
+    },
+    {
+      "name": "Catálogos",
+      "description": "Datos públicos que alimentan el mapa, la landing y los formularios."
+    },
+    {
+      "name": "Reportes",
+      "description": "Reportes ciudadanos: consulta, creación, imagen, votos y cambio de estado."
+    },
+    {
+      "name": "Chat de seguimiento",
+      "description": "Conversación entre el autor del reporte, la entidad asignada y la administración. Mensajes editables durante 5 minutos."
+    },
+    {
+      "name": "Notificaciones",
+      "description": "Notificaciones del usuario autenticado."
+    },
+    {
+      "name": "Usuarios",
+      "description": "Perfiles, insignias, avatar y denuncias."
+    },
+    {
+      "name": "Panel de entidad",
+      "description": "Cuenta institucional (rol `entidad`) vinculada a una entidad. Responde 403 `sin_entidad` si la cuenta no tiene entidad."
+    },
+    {
+      "name": "Admin · Estadísticas",
+      "description": "Requiere rol `administrador`."
+    },
+    {
+      "name": "Admin · Usuarios",
+      "description": "Requiere rol `administrador`."
+    },
+    {
+      "name": "Admin · Reportes",
+      "description": "Requiere rol `administrador`."
+    },
+    {
+      "name": "Admin · Entidades",
+      "description": "Requiere rol `administrador`."
+    },
+    {
+      "name": "Admin · Noticias",
+      "description": "Requiere rol `administrador`."
+    },
+    {
+      "name": "Admin · Servicios",
+      "description": "Requiere rol `administrador`."
+    }
+  ],
+  "x-tagGroups": [
+    {
+      "name": "General",
+      "tags": [
+        "Sistema",
+        "Autenticación",
+        "Catálogos"
+      ]
+    },
+    {
+      "name": "Panel ciudadano",
+      "tags": [
+        "Reportes",
+        "Chat de seguimiento",
+        "Notificaciones",
+        "Usuarios"
+      ]
+    },
+    {
+      "name": "Panel de entidad",
+      "tags": [
+        "Panel de entidad"
+      ]
+    },
+    {
+      "name": "Administración",
+      "tags": [
+        "Admin · Estadísticas",
+        "Admin · Usuarios",
+        "Admin · Reportes",
+        "Admin · Entidades",
+        "Admin · Noticias",
+        "Admin · Servicios"
+      ]
+    }
+  ],
+  "paths": {
+    "/prueba": {
+      "get": {
+        "tags": [
+          "Sistema"
+        ],
+        "summary": "Comprobar que la API responde",
+        "operationId": "prueba",
+        "responses": {
+          "200": {
+            "description": "La API está funcionando.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "API de Buenaventura Reporta funcionando correctamente."
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Registrar ciudadano",
+        "description": "Crea una cuenta con rol `ciudadano` y envía el correo de verificación. No inicia sesión: el usuario debe confirmar su correo antes de poder entrar.\n\nLímite: **10 peticiones/minuto**.",
+        "operationId": "register",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "nombre_completo",
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "nombre_completo": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 255
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "minLength": 8
+                  }
+                }
+              },
+              "example": {
+                "nombre_completo": "María Rentería",
+                "email": "ciudadano@ejemplo.com",
+                "password": "ClaveSegura123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Registro exitoso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/Usuario"
+                    }
+                  }
+                },
+                "example": {
+                  "message": "Registro exitoso. Revisa tu correo electrónico para activar tu cuenta.",
+                  "user": {
+                    "id": "9d3f6a1e-2b4c-4d8e-9f10-1a2b3c4d5e6f",
+                    "email": "ciudadano@ejemplo.com",
+                    "nombre_completo": "María Rentería",
+                    "telefono": null,
+                    "url_avatar": null,
+                    "rol": "ciudadano",
+                    "estado": "activo",
+                    "motivo_bloqueo": null,
+                    "puntuacion_reputacion": 4,
+                    "votos_positivos": 5,
+                    "votos_negativos": 1,
+                    "reportes_creados": 3,
+                    "reportes_resueltos": 1,
+                    "id_entidad": null,
+                    "fecha_creacion": "2026-09-28T14:05:00.000000Z",
+                    "fecha_actualizacion": "2026-09-30T10:12:00.000000Z"
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "10 peticiones por minuto",
+        "security": []
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Iniciar sesión",
+        "description": "Valida credenciales, que el correo esté verificado y que la cuenta esté activa. Devuelve un JWT.\n\nLímite: **10 peticiones/minuto**.",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password"
+                  }
+                }
+              },
+              "example": {
+                "email": "ciudadano@ejemplo.com",
+                "password": "ClaveSegura123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sesión iniciada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales incorrectas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorConCodigo"
+                },
+                "example": {
+                  "message": "Credenciales incorrectas. Verifica tu correo y contraseña.",
+                  "codigo": "credenciales_invalidas"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Correo no verificado o cuenta inactiva/suspendida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorConCodigo"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CuentaInactiva"
+                    }
+                  ]
+                },
+                "examples": {
+                  "correoNoVerificado": {
+                    "summary": "Correo sin verificar",
+                    "value": {
+                      "message": "Tu correo electrónico aún no ha sido verificado. Revisa tu bandeja de entrada.",
+                      "codigo": "correo_no_verificado"
+                    }
+                  },
+                  "cuentaInactiva": {
+                    "summary": "Cuenta suspendida",
+                    "value": {
+                      "message": "Tu cuenta está suspendida. Motivo: Uso indebido. Si crees que es un error, contacta a los administradores.",
+                      "codigo": "cuenta_inactiva",
+                      "estado": "suspendido",
+                      "motivo_bloqueo": "Uso indebido."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "10 peticiones por minuto",
+        "security": []
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Renovar token",
+        "description": "Devuelve un token nuevo. Acepta tokens **ya expirados** mientras estén dentro de `JWT_REFRESH_TTL` (por defecto 14 días), por eso no exige un token vigente. Envía el token actual en `Authorization: Bearer`.\n\nLímite: **10 peticiones/minuto**.",
+        "operationId": "refresh",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token renovado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Token"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "La sesión expiró.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "La sesión expiró. Inicia sesión nuevamente."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cuenta inactiva o suspendida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuentaInactiva"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "10 peticiones por minuto"
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Usuario autenticado",
+        "operationId": "me",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil completo del usuario autenticado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Cerrar sesión",
+        "description": "Invalida el token actual.",
+        "operationId": "logout",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sesión cerrada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Sesión cerrada correctamente."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/auth/forgot-password": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Solicitar recuperación de contraseña",
+        "description": "Envía un enlace de recuperación. La respuesta es la misma exista o no el correo.\n\nLímite: **5 peticiones/minuto**.",
+        "operationId": "forgotPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              },
+              "example": {
+                "email": "ciudadano@ejemplo.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solicitud recibida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña."
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "description": "Ya se solicitó un enlace hace poco (o se superó el límite).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Ya solicitaste un enlace hace poco. Espera un momento antes de intentarlo de nuevo."
+                }
+              }
+            }
+          }
+        },
+        "x-limite": "5 peticiones por minuto",
+        "security": []
+      }
+    },
+    "/auth/reset-password": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Restablecer contraseña",
+        "description": "Cambia la contraseña con el token recibido por correo. También marca el correo como verificado.\n\nLímite: **5 peticiones/minuto**.",
+        "operationId": "resetPassword",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token",
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  },
+                  "password": {
+                    "type": "string",
+                    "format": "password",
+                    "minLength": 8
+                  }
+                }
+              },
+              "example": {
+                "token": "a1b2c3...",
+                "email": "ciudadano@ejemplo.com",
+                "password": "NuevaClave123"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Contraseña actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Tu contraseña ha sido actualizada. Ya puedes iniciar sesión."
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Error de validación o enlace inválido/expirado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ErrorValidacion"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Mensaje"
+                    }
+                  ]
+                },
+                "example": {
+                  "message": "El enlace de recuperación no es válido o ha expirado. Solicita uno nuevo."
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "5 peticiones por minuto",
+        "security": []
+      }
+    },
+    "/auth/email/resend": {
+      "post": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Reenviar correo de verificación",
+        "description": "La respuesta es la misma exista o no la cuenta.\n\nLímite: **5 peticiones/minuto**.",
+        "operationId": "resendVerification",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email"
+                  }
+                }
+              },
+              "example": {
+                "email": "ciudadano@ejemplo.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Solicitud recibida.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Si la cuenta existe y no ha sido verificada, te enviamos un nuevo correo de confirmación."
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "5 peticiones por minuto",
+        "security": []
+      }
+    },
+    "/auth/verify-email/{id}/{hash}": {
+      "get": {
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Verificar correo (enlace del email)",
+        "description": "Enlace **firmado** que llega en el correo de confirmación; se abre desde el navegador, no desde el frontend. Siempre redirige a `FRONTEND_URL/login?verificado=ok` o `?verificado=invalido`.\n\nLímite: **10 peticiones/minuto**.",
+        "operationId": "verifyEmail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "UUID del usuario.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "hash",
+            "in": "path",
+            "required": true,
+            "description": "SHA-1 del correo del usuario.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expires",
+            "in": "query",
+            "required": true,
+            "description": "Marca de tiempo de expiración de la firma.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "signature",
+            "in": "query",
+            "required": true,
+            "description": "Firma HMAC de la URL.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirección al login del frontend con el resultado.",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "http://localhost:5173/login?verificado=ok"
+              }
+            }
+          }
+        },
+        "x-limite": "10 peticiones por minuto",
+        "security": []
+      }
+    },
+    "/report-categories": {
+      "get": {
+        "tags": [
+          "Catálogos"
+        ],
+        "summary": "Categorías de reporte activas",
+        "operationId": "listCategories",
+        "responses": {
+          "200": {
+            "description": "Categorías ordenadas por nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Categoria"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/entities": {
+      "get": {
+        "tags": [
+          "Catálogos"
+        ],
+        "summary": "Entidades activas",
+        "operationId": "listEntities",
+        "responses": {
+          "200": {
+            "description": "Entidades activas ordenadas por nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Entidad"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/services": {
+      "get": {
+        "tags": [
+          "Catálogos"
+        ],
+        "summary": "Servicios activos del mapa",
+        "operationId": "listServices",
+        "responses": {
+          "200": {
+            "description": "Servicios activos ordenados por nombre.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Servicio"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/news": {
+      "get": {
+        "tags": [
+          "Catálogos"
+        ],
+        "summary": "Noticias publicadas",
+        "operationId": "listNews",
+        "responses": {
+          "200": {
+            "description": "Noticias publicadas, las más recientes primero.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Noticia"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/reports": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Listar reportes visibles",
+        "description": "Reportes públicos para el mapa y el panel ciudadano, los más recientes primero. Incluye `perfiles` y `entidades`.",
+        "operationId": "listReports",
+        "responses": {
+          "200": {
+            "description": "Lista de reportes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Reporte"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Crear reporte",
+        "description": "Crea un reporte del usuario autenticado. Si no se envía `id_entidad`, se asigna la entidad responsable por defecto de la categoría. La imagen se sube después con `POST /reports/{reporte}/image`.\n\nLímite: **10 peticiones/minuto**.",
+        "operationId": "createReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NuevoReporte"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Reporte creado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "10 peticiones por minuto"
+      }
+    },
+    "/reports/{reporte}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Detalle de un reporte",
+        "description": "Los reportes eliminados (`visible: false`) solo los ven su autor, administradores y moderadores; para el resto responde 404. El token es opcional.",
+        "operationId": "getReport",
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reporte.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reporte"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Eliminar reporte propio",
+        "description": "Borrado lógico (`visible = false`). Solo el autor.",
+        "operationId": "deleteReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reporte eliminado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Reporte eliminado."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/reports/{reporte}/image": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Subir imagen del reporte",
+        "description": "Sube o reemplaza la imagen (borra la anterior). Solo el autor.",
+        "operationId": "uploadReportImage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "imagen"
+                ],
+                "properties": {
+                  "imagen": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Imagen del reporte. Formatos: jpg, jpeg, png, webp. Máximo 5 MB."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "URL pública de la imagen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlArchivo"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/reports/{reporte}/votes": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Votar un reporte",
+        "description": "Registra o cambia el voto del usuario. Votar dos veces lo mismo devuelve 422. Recalcula los votos del reporte y la reputación del autor, y le notifica.\n\nLímite: **30 peticiones/minuto**.",
+        "operationId": "voteReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "tipo_voto"
+                ],
+                "properties": {
+                  "tipo_voto": {
+                    "type": "string",
+                    "enum": [
+                      "voto_positivo",
+                      "voto_negativo"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "tipo_voto": "voto_positivo"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reporte con los votos actualizados (sin `perfiles` ni `entidades`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "description": "Validación o voto repetido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorValidacion"
+                },
+                "example": {
+                  "message": "Ya has votado lo mismo en este reporte.",
+                  "errors": {
+                    "tipo_voto": [
+                      "Ya has votado lo mismo en este reporte."
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "30 peticiones por minuto"
+      }
+    },
+    "/reports/{reporte}/status": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Cambiar estado del reporte",
+        "description": "Permitido a administradores, moderadores y a la cuenta de la **entidad asignada** al reporte. Registra el historial, actualiza `reportes_resueltos` del autor, la auditoría de la entidad y notifica al autor. Si el estado no cambia, devuelve el reporte sin modificar.",
+        "operationId": "changeReportStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "estado"
+                ],
+                "properties": {
+                  "estado": {
+                    "type": "string",
+                    "enum": [
+                      "pendiente",
+                      "en_revision",
+                      "en_proceso",
+                      "resuelto",
+                      "cancelado"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "estado": "resuelto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reporte actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/users/me/reports": {
+      "get": {
+        "tags": [
+          "Reportes"
+        ],
+        "summary": "Mis reportes",
+        "description": "Reportes visibles del usuario autenticado (incluye `entidades`).",
+        "operationId": "myReports",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de reportes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Reporte"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/reports/{reporte}/messages": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Chat de seguimiento"
+        ],
+        "summary": "Mensajes del reporte",
+        "description": "Participan el autor del reporte, administradores/moderadores y la entidad asignada. Orden cronológico.",
+        "operationId": "listMessages",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mensajes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MensajeChat"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Chat de seguimiento"
+        ],
+        "summary": "Enviar mensaje",
+        "description": "El `tipo_remitente` se asigna según el rol. Notifica a los demás participantes.\n\nLímite: **20 peticiones/minuto**.",
+        "operationId": "sendMessage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "mensaje"
+                ],
+                "properties": {
+                  "mensaje": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                }
+              },
+              "example": {
+                "mensaje": "¿Hay alguna fecha estimada de reparación?"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Mensaje creado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensajeChat"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "20 peticiones por minuto"
+      }
+    },
+    "/messages/{mensaje}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/mensaje"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Chat de seguimiento"
+        ],
+        "summary": "Editar mensaje",
+        "description": "Solo el autor y durante los **5 minutos** siguientes a su envío.",
+        "operationId": "updateMessage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "mensaje"
+                ],
+                "properties": {
+                  "mensaje": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                }
+              },
+              "example": {
+                "mensaje": "Texto corregido."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Mensaje editado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MensajeChat"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "description": "No es el autor o pasó el tiempo límite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "El tiempo límite de 5 minutos para editar ha expirado."
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Chat de seguimiento"
+        ],
+        "summary": "Eliminar mensaje",
+        "description": "Solo el autor y durante los **5 minutos** siguientes a su envío.",
+        "operationId": "deleteMessage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Mensaje eliminado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Mensaje eliminado."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "description": "No es el autor o pasó el tiempo límite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "No puedes eliminar este mensaje."
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/users/me/notifications": {
+      "get": {
+        "tags": [
+          "Notificaciones"
+        ],
+        "summary": "Mis notificaciones",
+        "description": "Últimas 100 notificaciones del usuario autenticado, las más recientes primero.",
+        "operationId": "listNotifications",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notificaciones.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Notificacion"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/notifications/{notificacion}/read": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/notificacion"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Notificaciones"
+        ],
+        "summary": "Marcar como leída",
+        "description": "Las notificaciones de otros usuarios responden 404.",
+        "operationId": "markNotificationRead",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notificación actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notificacion"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/notifications/{notificacion}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/notificacion"
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Notificaciones"
+        ],
+        "summary": "Eliminar notificación",
+        "operationId": "deleteNotification",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notificación eliminada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Notificación eliminada."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/users/{usuario}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/usuario"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Perfil de usuario",
+        "description": "Si el token pertenece al mismo usuario devuelve su perfil completo (`Usuario`); en cualquier otro caso, solo los datos públicos (`PerfilPublico`). El token es opcional.",
+        "operationId": "getUser",
+        "security": [
+          {},
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Perfil.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PerfilPublico"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Usuario"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/users/{usuario}/badges": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/usuario"
+        }
+      ],
+      "get": {
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Insignias del usuario",
+        "description": "Insignias obtenidas, las más recientes primero.",
+        "operationId": "getUserBadges",
+        "responses": {
+          "200": {
+            "description": "Insignias.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InsigniaObtenida"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        },
+        "security": []
+      }
+    },
+    "/users/me/avatar": {
+      "post": {
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Subir foto de perfil",
+        "description": "Sube o reemplaza el avatar del usuario autenticado.",
+        "operationId": "uploadAvatar",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "avatar"
+                ],
+                "properties": {
+                  "avatar": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Foto de perfil. Formatos: jpg, jpeg, png, webp. Máximo 2 MB."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Avatar actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    },
+                    "user": {
+                      "$ref": "#/components/schemas/Usuario"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/users/{usuario}/report-abuse": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/usuario"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Denunciar usuario",
+        "description": "Envía una alerta a todos los administradores. No se puede denunciar a uno mismo.\n\nLímite: **5 peticiones/minuto**.",
+        "operationId": "reportUser",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "motivo"
+                ],
+                "properties": {
+                  "motivo": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "id_reporte": {
+                    "type": "string",
+                    "format": "uuid",
+                    "nullable": true,
+                    "description": "Reporte relacionado (opcional)."
+                  }
+                }
+              },
+              "example": {
+                "motivo": "Publica contenido ofensivo en los reportes.",
+                "id_reporte": "4018bfaf-6681-4f83-bd2c-bc33b8e7981d"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Denuncia enviada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Denuncia enviada a la administración."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          },
+          "429": {
+            "$ref": "#/components/responses/DemasiadasPeticiones"
+          }
+        },
+        "x-limite": "5 peticiones por minuto"
+      }
+    },
+    "/entity": {
+      "get": {
+        "tags": [
+          "Panel de entidad"
+        ],
+        "summary": "Mi entidad",
+        "description": "Datos de la entidad vinculada a la cuenta (rol `entidad`).",
+        "operationId": "getMyEntity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entidad.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entidad"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Panel de entidad"
+        ],
+        "summary": "Actualizar mi entidad",
+        "description": "La entidad solo edita sus datos de contacto y presentación. Nombre, slug, tipo y correo de acceso los cambia la administración. Todos los campos son opcionales. Queda registrado en la auditoría.",
+        "operationId": "updateMyEntity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "descripcion": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "nullable": true
+                  },
+                  "telefono": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "nullable": true
+                  },
+                  "sitio_web": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 255,
+                    "nullable": true
+                  },
+                  "color": {
+                    "type": "string",
+                    "maxLength": 20,
+                    "nullable": true
+                  }
+                }
+              },
+              "example": {
+                "descripcion": "Atención 24/7 para daños en la red.",
+                "telefono": "6022400000",
+                "sitio_web": "https://aguas.gov.co",
+                "color": "#0ea5e9"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Entidad actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entidad"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/entity/logo": {
+      "post": {
+        "tags": [
+          "Panel de entidad"
+        ],
+        "summary": "Subir logo",
+        "operationId": "uploadEntityLogo",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "logo"
+                ],
+                "properties": {
+                  "logo": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Logo institucional. Formatos: jpg, jpeg, png, webp. Máximo 2 MB."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "URL del logo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlArchivo"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/entity/reports": {
+      "get": {
+        "tags": [
+          "Panel de entidad"
+        ],
+        "summary": "Reportes asignados",
+        "description": "Reportes visibles asignados a la entidad. Para cambiar su estado usa `PATCH /reports/{reporte}/status`.",
+        "operationId": "getEntityReports",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reportes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Reporte"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/entity/stats": {
+      "get": {
+        "tags": [
+          "Panel de entidad"
+        ],
+        "summary": "Estadísticas de la entidad",
+        "description": "Conteo de reportes asignados por estado.",
+        "operationId": "getEntityStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estadísticas.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadisticasEntidad"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/entity/activity": {
+      "get": {
+        "tags": [
+          "Panel de entidad"
+        ],
+        "summary": "Auditoría de la entidad",
+        "description": "Últimas 50 acciones (inicios de sesión, actualizaciones y cambios en reportes).",
+        "operationId": "getEntityActivity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Actividad.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActividadEntidad"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/admin/stats": {
+      "get": {
+        "tags": [
+          "Admin · Estadísticas"
+        ],
+        "summary": "Indicadores del tablero",
+        "operationId": "adminStats",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Indicadores.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadisticasAdmin"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "tags": [
+          "Admin · Usuarios"
+        ],
+        "summary": "Listar usuarios",
+        "description": "Todos los usuarios, los más recientes primero.",
+        "operationId": "adminListUsers",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usuarios.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Usuario"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/admin/users/{usuario}/status": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/usuario"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Admin · Usuarios"
+        ],
+        "summary": "Cambiar estado de un usuario",
+        "description": "Activa, inactiva o suspende. El bloqueo aplica de inmediato: sus tokens vigentes dejan de funcionar. Al activar se borra `motivo_bloqueo`. No se puede aplicar sobre la propia cuenta (422).",
+        "operationId": "adminChangeUserStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "estado"
+                ],
+                "properties": {
+                  "estado": {
+                    "type": "string",
+                    "enum": [
+                      "activo",
+                      "inactivo",
+                      "suspendido"
+                    ]
+                  },
+                  "motivo_bloqueo": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "nullable": true
+                  }
+                }
+              },
+              "example": {
+                "estado": "suspendido",
+                "motivo_bloqueo": "Uso indebido."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuario actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/users/{usuario}/role": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/usuario"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Admin · Usuarios"
+        ],
+        "summary": "Cambiar rol de un usuario",
+        "description": "Solo `ciudadano`, `moderador` o `administrador`. El rol `entidad` se gestiona desde las entidades, y las cuentas de entidad no pueden cambiar de rol aquí. No se puede cambiar el propio rol.",
+        "operationId": "adminChangeUserRole",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "rol"
+                ],
+                "properties": {
+                  "rol": {
+                    "type": "string",
+                    "enum": [
+                      "ciudadano",
+                      "moderador",
+                      "administrador"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "rol": "moderador"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Usuario actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usuario"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/reports": {
+      "get": {
+        "tags": [
+          "Admin · Reportes"
+        ],
+        "summary": "Listar todos los reportes",
+        "description": "Incluye los ocultos (`visible: false`).",
+        "operationId": "adminListReports",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reportes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Reporte"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      }
+    },
+    "/admin/reports/{reporte}/entity": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Admin · Reportes"
+        ],
+        "summary": "Asignar entidad",
+        "description": "Asigna el reporte a una entidad y notifica al autor y a las cuentas de la entidad.",
+        "operationId": "adminAssignEntity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "id_entidad"
+                ],
+                "properties": {
+                  "id_entidad": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              },
+              "example": {
+                "id_entidad": "7b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reporte actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reporte"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/reports/{reporte}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/reporte"
+        }
+      ],
+      "delete": {
+        "tags": [
+          "Admin · Reportes"
+        ],
+        "summary": "Eliminar reporte",
+        "description": "Borrado lógico (`visible = false`).",
+        "operationId": "adminDeleteReport",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reporte eliminado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Reporte eliminado."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/admin/entities": {
+      "get": {
+        "tags": [
+          "Admin · Entidades"
+        ],
+        "summary": "Listar entidades",
+        "description": "Todas, incluidas las inactivas.",
+        "operationId": "adminListEntities",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entidades.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Entidad"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin · Entidades"
+        ],
+        "summary": "Crear entidad",
+        "description": "Crea la entidad y su cuenta institucional (rol `entidad`, correo ya verificado) en una sola transacción.",
+        "operationId": "adminCreateEntity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntidadEntrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Entidad creada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entidad"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/entities/{entidad}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/entidad"
+        }
+      ],
+      "put": {
+        "tags": [
+          "Admin · Entidades"
+        ],
+        "summary": "Actualizar entidad",
+        "description": "Actualiza la entidad y sincroniza nombre, correo y (si llega) contraseña de su cuenta institucional principal.",
+        "operationId": "adminUpdateEntity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntidadEntrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Entidad actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entidad"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin · Entidades"
+        ],
+        "summary": "Eliminar entidad",
+        "description": "Sus reportes quedan sin asignar y sus cuentas pasan a `inactivo`.",
+        "operationId": "adminDeleteEntity",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entidad eliminada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Entidad eliminada."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/admin/news": {
+      "get": {
+        "tags": [
+          "Admin · Noticias"
+        ],
+        "summary": "Listar noticias",
+        "description": "Publicadas y borradores.",
+        "operationId": "adminListNews",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Noticias.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Noticia"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin · Noticias"
+        ],
+        "summary": "Crear noticia",
+        "description": "Si `esta_publicada` es true se publica y se notifica a todos los ciudadanos.",
+        "operationId": "adminCreateNews",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticiaEntrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Noticia creada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Noticia"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/news/{noticia}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/noticia"
+        }
+      ],
+      "put": {
+        "tags": [
+          "Admin · Noticias"
+        ],
+        "summary": "Actualizar noticia",
+        "operationId": "adminUpdateNews",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticiaEntrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Noticia actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Noticia"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin · Noticias"
+        ],
+        "summary": "Eliminar noticia",
+        "description": "También borra su imagen si está en el almacenamiento propio.",
+        "operationId": "adminDeleteNews",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Noticia eliminada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Noticia eliminada."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/admin/news/{noticia}/publish": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/noticia"
+        }
+      ],
+      "patch": {
+        "tags": [
+          "Admin · Noticias"
+        ],
+        "summary": "Publicar o retirar noticia",
+        "description": "Solo se notifica a los ciudadanos la primera vez que se publica.",
+        "operationId": "adminPublishNews",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "esta_publicada"
+                ],
+                "properties": {
+                  "esta_publicada": {
+                    "type": "boolean"
+                  }
+                }
+              },
+              "example": {
+                "esta_publicada": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Noticia actualizada.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Noticia"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/news/{noticia}/image": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/noticia"
+        }
+      ],
+      "post": {
+        "tags": [
+          "Admin · Noticias"
+        ],
+        "summary": "Subir imagen de la noticia",
+        "operationId": "adminUploadNewsImage",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "imagen"
+                ],
+                "properties": {
+                  "imagen": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Imagen de la noticia. Formatos: jpg, jpeg, png, webp. Máximo 5 MB."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "URL de la imagen.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlArchivo"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/services": {
+      "get": {
+        "tags": [
+          "Admin · Servicios"
+        ],
+        "summary": "Listar servicios",
+        "description": "Todos, incluidos los inactivos.",
+        "operationId": "adminListServices",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Servicios.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Servicio"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Admin · Servicios"
+        ],
+        "summary": "Crear servicio",
+        "description": "Si queda activo, se notifica a todos los ciudadanos.",
+        "operationId": "adminCreateService",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServicioEntrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Servicio creado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Servicio"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      }
+    },
+    "/admin/services/{servicio}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/servicio"
+        }
+      ],
+      "put": {
+        "tags": [
+          "Admin · Servicios"
+        ],
+        "summary": "Actualizar servicio",
+        "operationId": "adminUpdateService",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ServicioEntrada"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Servicio actualizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Servicio"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "422": {
+            "$ref": "#/components/responses/Validacion"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Admin · Servicios"
+        ],
+        "summary": "Eliminar servicio",
+        "operationId": "adminDeleteService",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Servicio eliminado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mensaje"
+                },
+                "example": {
+                  "message": "Servicio eliminado."
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/CuentaInactivaOSinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token obtenido en `POST /auth/login`."
+      }
+    },
+    "parameters": {
+      "reporte": {
+        "name": "reporte",
+        "in": "path",
+        "required": true,
+        "description": "UUID del reporte.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "mensaje": {
+        "name": "mensaje",
+        "in": "path",
+        "required": true,
+        "description": "UUID del mensaje de chat.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "notificacion": {
+        "name": "notificacion",
+        "in": "path",
+        "required": true,
+        "description": "UUID del notificación.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "usuario": {
+        "name": "usuario",
+        "in": "path",
+        "required": true,
+        "description": "UUID del usuario.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "entidad": {
+        "name": "entidad",
+        "in": "path",
+        "required": true,
+        "description": "UUID del entidad.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "noticia": {
+        "name": "noticia",
+        "in": "path",
+        "required": true,
+        "description": "UUID del noticia.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "servicio": {
+        "name": "servicio",
+        "in": "path",
+        "required": true,
+        "description": "UUID del servicio.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "responses": {
+      "NoAutenticado": {
+        "description": "Falta el token, es inválido o expiró.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Mensaje"
+            },
+            "example": {
+              "message": "No autenticado. Inicia sesión nuevamente."
+            }
+          }
+        }
+      },
+      "CuentaInactivaOSinPermiso": {
+        "description": "La cuenta está suspendida/inactiva (`codigo: cuenta_inactiva`) o no tiene permisos para la acción.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CuentaInactiva"
+                },
+                {
+                  "$ref": "#/components/schemas/Mensaje"
+                }
+              ]
+            },
+            "examples": {
+              "sinPermiso": {
+                "summary": "Sin permisos",
+                "value": {
+                  "message": "No tienes permisos para realizar esta acción."
+                }
+              },
+              "cuentaInactiva": {
+                "summary": "Cuenta suspendida",
+                "value": {
+                  "message": "Tu cuenta está suspendida. Motivo: Uso indebido. Si crees que es un error, contacta a los administradores.",
+                  "codigo": "cuenta_inactiva",
+                  "estado": "suspendido",
+                  "motivo_bloqueo": "Uso indebido."
+                }
+              }
+            }
+          }
+        }
+      },
+      "NoEncontrado": {
+        "description": "El recurso no existe (o el identificador no es un UUID válido).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Mensaje"
+            },
+            "example": {
+              "message": "El reporte no existe."
+            }
+          }
+        }
+      },
+      "Validacion": {
+        "description": "Error de validación.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorValidacion"
+            }
+          }
+        }
+      },
+      "DemasiadasPeticiones": {
+        "description": "Se superó el límite de peticiones por minuto.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Mensaje"
+            },
+            "example": {
+              "message": "Too Many Attempts."
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Mensaje": {
+        "type": "object",
+        "description": "Respuesta simple con un mensaje legible para el usuario.",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "ErrorValidacion": {
+        "type": "object",
+        "description": "Error 422 estándar de Laravel. `errors` agrupa los mensajes por campo.",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "example": {
+          "message": "El correo electrónico es obligatorio.",
+          "errors": {
+            "email": [
+              "El correo electrónico es obligatorio."
+            ]
+          }
+        }
+      },
+      "ErrorConCodigo": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "codigo": {
+            "type": "string",
+            "enum": [
+              "credenciales_invalidas",
+              "correo_no_verificado",
+              "cuenta_inactiva",
+              "sin_entidad"
+            ]
+          }
+        }
+      },
+      "CuentaInactiva": {
+        "type": "object",
+        "description": "Respuesta para cuentas suspendidas o inactivas (login, refresh y cualquier ruta protegida).",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "codigo": {
+            "type": "string",
+            "enum": [
+              "cuenta_inactiva"
+            ]
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "inactivo",
+              "suspendido"
+            ]
+          },
+          "motivo_bloqueo": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "example": {
+          "message": "Tu cuenta está suspendida. Motivo: Uso indebido. Si crees que es un error, contacta a los administradores.",
+          "codigo": "cuenta_inactiva",
+          "estado": "suspendido",
+          "motivo_bloqueo": "Uso indebido."
+        }
+      },
+      "Usuario": {
+        "type": "object",
+        "description": "Perfil completo del usuario (solo lo recibe el propio usuario o la administración). Nunca incluye password ni email_verified_at.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "nombre_completo": {
+            "type": "string",
+            "nullable": true
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true
+          },
+          "url_avatar": {
+            "type": "string",
+            "nullable": true
+          },
+          "rol": {
+            "type": "string",
+            "enum": [
+              "ciudadano",
+              "entidad",
+              "moderador",
+              "administrador"
+            ]
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "activo",
+              "inactivo",
+              "suspendido"
+            ]
+          },
+          "motivo_bloqueo": {
+            "type": "string",
+            "nullable": true
+          },
+          "puntuacion_reputacion": {
+            "type": "integer",
+            "description": "votos_positivos - votos_negativos de todos sus reportes."
+          },
+          "votos_positivos": {
+            "type": "integer"
+          },
+          "votos_negativos": {
+            "type": "integer"
+          },
+          "reportes_creados": {
+            "type": "integer"
+          },
+          "reportes_resueltos": {
+            "type": "integer"
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Entidad que gestiona (solo cuentas con rol `entidad`)."
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "fecha_actualizacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "example": {
+          "id": "9d3f6a1e-2b4c-4d8e-9f10-1a2b3c4d5e6f",
+          "email": "ciudadano@ejemplo.com",
+          "nombre_completo": "María Rentería",
+          "telefono": null,
+          "url_avatar": null,
+          "rol": "ciudadano",
+          "estado": "activo",
+          "motivo_bloqueo": null,
+          "puntuacion_reputacion": 4,
+          "votos_positivos": 5,
+          "votos_negativos": 1,
+          "reportes_creados": 3,
+          "reportes_resueltos": 1,
+          "id_entidad": null,
+          "fecha_creacion": "2026-09-28T14:05:00.000000Z",
+          "fecha_actualizacion": "2026-09-30T10:12:00.000000Z"
+        }
+      },
+      "PerfilPublico": {
+        "type": "object",
+        "description": "Datos públicos de un usuario (sin correo ni teléfono).",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre_completo": {
+            "type": "string",
+            "nullable": true
+          },
+          "url_avatar": {
+            "type": "string",
+            "nullable": true
+          },
+          "rol": {
+            "type": "string",
+            "enum": [
+              "ciudadano",
+              "entidad",
+              "moderador",
+              "administrador"
+            ]
+          },
+          "puntuacion_reputacion": {
+            "type": "integer"
+          },
+          "votos_positivos": {
+            "type": "integer"
+          },
+          "votos_negativos": {
+            "type": "integer"
+          },
+          "reportes_creados": {
+            "type": "integer"
+          },
+          "reportes_resueltos": {
+            "type": "integer"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Token": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "JWT para enviar en `Authorization: Bearer <token>`."
+          },
+          "token_type": {
+            "type": "string",
+            "enum": [
+              "bearer"
+            ]
+          },
+          "expires_in": {
+            "type": "integer",
+            "description": "Segundos de vida del token (JWT_TTL × 60, por defecto 3600)."
+          },
+          "user": {
+            "$ref": "#/components/schemas/Usuario"
+          }
+        },
+        "example": {
+          "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+          "token_type": "bearer",
+          "expires_in": 3600,
+          "user": {
+            "id": "9d3f6a1e-2b4c-4d8e-9f10-1a2b3c4d5e6f",
+            "email": "ciudadano@ejemplo.com",
+            "nombre_completo": "María Rentería",
+            "telefono": null,
+            "url_avatar": null,
+            "rol": "ciudadano",
+            "estado": "activo",
+            "motivo_bloqueo": null,
+            "puntuacion_reputacion": 4,
+            "votos_positivos": 5,
+            "votos_negativos": 1,
+            "reportes_creados": 3,
+            "reportes_resueltos": 1,
+            "id_entidad": null,
+            "fecha_creacion": "2026-09-28T14:05:00.000000Z",
+            "fecha_actualizacion": "2026-09-30T10:12:00.000000Z"
+          }
+        }
+      },
+      "Reporte": {
+        "type": "object",
+        "description": "Reporte ciudadano. `perfiles` (autor) y `entidades` (entidad asignada) se incluyen cuando la relación está cargada.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_usuario": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "categoria": {
+            "type": "string",
+            "description": "Nombre de una categoría de `/report-categories`."
+          },
+          "direccion_ubicacion": {
+            "type": "string",
+            "nullable": true
+          },
+          "latitud": {
+            "type": "string",
+            "nullable": true,
+            "description": "Latitud. Se serializa como cadena con 7 decimales.",
+            "example": "3.8801000"
+          },
+          "longitud": {
+            "type": "string",
+            "nullable": true,
+            "description": "Longitud. Se serializa como cadena con 7 decimales.",
+            "example": "3.8801000"
+          },
+          "url_imagen": {
+            "type": "string",
+            "nullable": true
+          },
+          "estado": {
+            "type": "string",
+            "enum": [
+              "pendiente",
+              "en_revision",
+              "en_proceso",
+              "resuelto",
+              "cancelado"
+            ]
+          },
+          "prioridad": {
+            "type": "string",
+            "enum": [
+              "baja",
+              "media",
+              "alta",
+              "critica"
+            ]
+          },
+          "votos_positivos": {
+            "type": "integer"
+          },
+          "votos_negativos": {
+            "type": "integer"
+          },
+          "visto": {
+            "type": "boolean",
+            "description": "Pasa a true cuando la entidad o la administración cambian su estado."
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "false = eliminado (borrado lógico)."
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "fecha_actualizacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "perfiles": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "nombre_completo": {
+                "type": "string",
+                "nullable": true
+              },
+              "url_avatar": {
+                "type": "string",
+                "nullable": true
+              },
+              "puntuacion_reputacion": {
+                "type": "integer"
+              }
+            }
+          },
+          "entidades": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "nombre": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "nullable": true
+              },
+              "logo_url": {
+                "type": "string",
+                "nullable": true
+              },
+              "email": {
+                "type": "string",
+                "nullable": true
+              },
+              "telefono": {
+                "type": "string",
+                "nullable": true
+              },
+              "descripcion": {
+                "type": "string",
+                "nullable": true
+              },
+              "sitio_web": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        },
+        "example": {
+          "id": "4018bfaf-6681-4f83-bd2c-bc33b8e7981d",
+          "id_usuario": "9d3f6a1e-2b4c-4d8e-9f10-1a2b3c4d5e6f",
+          "id_entidad": "7b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+          "titulo": "Fuga de agua en la calle principal",
+          "descripcion": "Hay una fuga de agua potable desde hace dos días frente al parque.",
+          "categoria": "Agua y alcantarillado",
+          "direccion_ubicacion": "Calle 2 # 3-45, Centro",
+          "latitud": "3.8801000",
+          "longitud": "-77.0312000",
+          "url_imagen": "http://localhost:8000/storage/reportes/4018bfaf-6681-4f83-bd2c-bc33b8e7981d.png",
+          "estado": "en_proceso",
+          "prioridad": "alta",
+          "votos_positivos": 5,
+          "votos_negativos": 1,
+          "visto": true,
+          "visible": true,
+          "fecha_creacion": "2026-09-29T08:30:00.000000Z",
+          "fecha_actualizacion": "2026-09-30T16:45:00.000000Z",
+          "perfiles": {
+            "id": "9d3f6a1e-2b4c-4d8e-9f10-1a2b3c4d5e6f",
+            "nombre_completo": "María Rentería",
+            "url_avatar": null,
+            "puntuacion_reputacion": 4
+          },
+          "entidades": {
+            "id": "7b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+            "nombre": "Aguas de Buenaventura",
+            "slug": "aguas-buenaventura",
+            "color": "#0ea5e9",
+            "logo_url": null,
+            "email": "contacto@aguas.gov.co",
+            "telefono": "6022400000",
+            "descripcion": "Empresa de acueducto y alcantarillado.",
+            "sitio_web": "https://aguas.gov.co"
+          }
+        }
+      },
+      "NuevoReporte": {
+        "type": "object",
+        "required": [
+          "titulo",
+          "descripcion",
+          "categoria"
+        ],
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "descripcion": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "categoria": {
+            "type": "string",
+            "description": "Nombre de una categoría activa."
+          },
+          "direccion_ubicacion": {
+            "type": "string",
+            "maxLength": 255,
+            "nullable": true
+          },
+          "latitud": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "nullable": true
+          },
+          "longitud": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "nullable": true
+          },
+          "prioridad": {
+            "type": "string",
+            "enum": [
+              "baja",
+              "media",
+              "alta",
+              "critica"
+            ],
+            "nullable": true,
+            "default": "media"
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Entidad activa. Si se omite se usa la entidad por defecto de la categoría."
+          }
+        },
+        "example": {
+          "titulo": "Fuga de agua en la calle principal",
+          "descripcion": "Hay una fuga de agua potable desde hace dos días frente al parque.",
+          "categoria": "Agua y alcantarillado",
+          "direccion_ubicacion": "Calle 2 # 3-45, Centro",
+          "latitud": 3.8801,
+          "longitud": -77.0312,
+          "prioridad": "alta"
+        }
+      },
+      "Categoria": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Entidad responsable por defecto."
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "icono": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "nullable": true
+          },
+          "descripcion": {
+            "type": "string",
+            "nullable": true
+          },
+          "esta_activa": {
+            "type": "boolean"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "Entidad": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "servicios-publicos",
+              "seguridad",
+              "salud",
+              "infraestructura",
+              "ambiente",
+              "otro"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "nullable": true
+          },
+          "logo_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "sitio_web": {
+            "type": "string",
+            "nullable": true
+          },
+          "esta_activa": {
+            "type": "boolean"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "fecha_actualizacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "example": {
+          "id": "7b1e2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+          "nombre": "Aguas de Buenaventura",
+          "slug": "aguas-buenaventura",
+          "descripcion": "Empresa de acueducto y alcantarillado.",
+          "tipo": "servicios-publicos",
+          "email": "contacto@aguas.gov.co",
+          "telefono": "6022400000",
+          "color": "#0ea5e9",
+          "logo_url": null,
+          "sitio_web": "https://aguas.gov.co",
+          "esta_activa": true,
+          "fecha_creacion": "2026-09-28T12:00:00.000000Z",
+          "fecha_actualizacion": "2026-09-28T12:00:00.000000Z"
+        }
+      },
+      "EntidadEntrada": {
+        "type": "object",
+        "description": "Al crear, `email` y `password` son obligatorios (crean la cuenta institucional con rol `entidad`). Al editar son opcionales y, si llegan, actualizan esa cuenta. Las cadenas vacías se tratan como null.",
+        "required": [
+          "nombre",
+          "slug",
+          "tipo"
+        ],
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "Único; solo letras, números, guiones y guiones bajos."
+          },
+          "descripcion": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "servicios-publicos",
+              "seguridad",
+              "salud",
+              "infraestructura",
+              "ambiente",
+              "otro"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 255,
+            "description": "Correo de acceso de la cuenta institucional (único en users)."
+          },
+          "telefono": {
+            "type": "string",
+            "maxLength": 30,
+            "nullable": true
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 20,
+            "nullable": true
+          },
+          "sitio_web": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 255,
+            "nullable": true
+          },
+          "esta_activa": {
+            "type": "boolean"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "format": "password"
+          }
+        },
+        "example": {
+          "nombre": "Aguas de Buenaventura",
+          "slug": "aguas-buenaventura",
+          "descripcion": "Empresa de acueducto y alcantarillado.",
+          "tipo": "servicios-publicos",
+          "email": "contacto@aguas.gov.co",
+          "telefono": "6022400000",
+          "color": "#0ea5e9",
+          "sitio_web": "https://aguas.gov.co",
+          "esta_activa": true,
+          "password": "ClaveSegura123"
+        }
+      },
+      "Servicio": {
+        "type": "object",
+        "description": "Punto de servicio de la ciudad en el mapa (hospitales, estaciones, etc.).",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string"
+          },
+          "latitud": {
+            "type": "string",
+            "nullable": true,
+            "description": "Latitud. Se serializa como cadena con 7 decimales.",
+            "example": "3.8801000"
+          },
+          "longitud": {
+            "type": "string",
+            "nullable": true,
+            "description": "Longitud. Se serializa como cadena con 7 decimales.",
+            "example": "3.8801000"
+          },
+          "direccion": {
+            "type": "string",
+            "nullable": true
+          },
+          "horario": {
+            "type": "string",
+            "nullable": true
+          },
+          "telefono": {
+            "type": "string",
+            "nullable": true
+          },
+          "esta_activo": {
+            "type": "boolean"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "fecha_actualizacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ServicioEntrada": {
+        "type": "object",
+        "required": [
+          "nombre",
+          "tipo",
+          "latitud",
+          "longitud"
+        ],
+        "properties": {
+          "nombre": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "descripcion": {
+            "type": "string",
+            "maxLength": 2000,
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "latitud": {
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitud": {
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "direccion": {
+            "type": "string",
+            "maxLength": 255,
+            "nullable": true
+          },
+          "horario": {
+            "type": "string",
+            "maxLength": 150,
+            "nullable": true
+          },
+          "telefono": {
+            "type": "string",
+            "maxLength": 30,
+            "nullable": true
+          },
+          "esta_activo": {
+            "type": "boolean"
+          }
+        },
+        "example": {
+          "nombre": "Hospital Departamental",
+          "tipo": "hospital",
+          "latitud": 3.8835,
+          "longitud": -77.0201,
+          "direccion": "Av. Simón Bolívar Km 1",
+          "horario": "24 horas",
+          "telefono": "6022411111",
+          "esta_activo": true
+        }
+      },
+      "Noticia": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "contenido": {
+            "type": "string"
+          },
+          "url_imagen": {
+            "type": "string",
+            "nullable": true
+          },
+          "categoria": {
+            "type": "string",
+            "nullable": true
+          },
+          "esta_publicada": {
+            "type": "boolean"
+          },
+          "fecha_publicacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Se fija la primera vez que se publica."
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "fecha_actualizacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "entidades": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "nombre": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "nullable": true
+              },
+              "logo_url": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "NoticiaEntrada": {
+        "type": "object",
+        "required": [
+          "titulo",
+          "contenido"
+        ],
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "contenido": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "categoria": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true
+          },
+          "url_imagen": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "nullable": true
+          },
+          "esta_publicada": {
+            "type": "boolean",
+            "description": "Al publicar por primera vez se notifica a todos los ciudadanos."
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "example": {
+          "titulo": "Jornada de limpieza de playas",
+          "contenido": "Este sábado se realizará una jornada de limpieza en La Bocana...",
+          "categoria": "Ambiente",
+          "esta_publicada": true
+        }
+      },
+      "MensajeChat": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_reporte": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_remitente": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tipo_remitente": {
+            "type": "string",
+            "enum": [
+              "usuario",
+              "entidad",
+              "moderador"
+            ],
+            "description": "Administradores y moderadores escriben como `moderador`."
+          },
+          "mensaje": {
+            "type": "string"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "perfiles": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "nombre_completo": {
+                "type": "string",
+                "nullable": true
+              },
+              "url_avatar": {
+                "type": "string",
+                "nullable": true
+              },
+              "rol": {
+                "type": "string",
+                "enum": [
+                  "ciudadano",
+                  "entidad",
+                  "moderador",
+                  "administrador"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "Notificacion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_usuario": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_reporte": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "reporte_actualizado",
+              "nuevo_mensaje",
+              "reporte_resuelto",
+              "mencion",
+              "alerta_sistema"
+            ],
+            "nullable": true
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "mensaje": {
+            "type": "string"
+          },
+          "esta_leida": {
+            "type": "boolean"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "InsigniaObtenida": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string",
+            "nullable": true
+          },
+          "icono": {
+            "type": "string",
+            "nullable": true
+          },
+          "requisito_texto": {
+            "type": "string",
+            "nullable": true
+          },
+          "fecha_obtencion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "ActividadEntidad": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "id_entidad": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tipo_accion": {
+            "type": "string",
+            "enum": [
+              "auth",
+              "update",
+              "reporte"
+            ]
+          },
+          "titulo": {
+            "type": "string"
+          },
+          "descripcion": {
+            "type": "string"
+          },
+          "fecha_creacion": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "UrlArchivo": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "URL pública del archivo en /storage."
+          }
+        },
+        "example": {
+          "url": "http://localhost:8000/storage/reportes/74b4f279-28fb-4d49-8021-aea706c48439.png"
+        }
+      },
+      "EstadisticasAdmin": {
+        "type": "object",
+        "properties": {
+          "reports": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "byStatus": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "byCategory": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "users": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer"
+              },
+              "byStatus": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "entities": {
+            "type": "integer"
+          }
+        },
+        "example": {
+          "reports": {
+            "total": 42,
+            "byStatus": {
+              "pendiente": 10,
+              "en_proceso": 12,
+              "resuelto": 20
+            },
+            "byCategory": {
+              "Agua y alcantarillado": 15,
+              "Vías": 27
+            }
+          },
+          "users": {
+            "total": 120,
+            "byStatus": {
+              "activo": 117,
+              "suspendido": 3
+            }
+          },
+          "entities": 6
+        }
+      },
+      "EstadisticasEntidad": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "pendiente": {
+            "type": "integer"
+          },
+          "en_revision": {
+            "type": "integer"
+          },
+          "en_proceso": {
+            "type": "integer"
+          },
+          "resuelto": {
+            "type": "integer"
+          },
+          "cancelado": {
+            "type": "integer"
+          }
+        },
+        "example": {
+          "total": 12,
+          "pendiente": 3,
+          "en_revision": 2,
+          "en_proceso": 4,
+          "resuelto": 3,
+          "cancelado": 0
+        }
+      }
+    }
+  }
+}
