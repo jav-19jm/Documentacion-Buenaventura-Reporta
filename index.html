@@ -4,23 +4,584 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Buenaventura Reporta API</title>
-    <meta name="description" content="Documentación de la API REST de Buenaventura Reporta (OpenAPI + Scalar)." />
+    <meta name="description" content="Documentación de la API REST de Buenaventura Reporta: reportes ciudadanos, entidades, notificaciones y administración." />
+    <meta property="og:title" content="Buenaventura Reporta API" />
+    <meta property="og:description" content="API REST de la plataforma ciudadana para reportar incidencias urbanas en Buenaventura." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#09090b" />
+    <link rel="icon" type="image/svg+xml" href="./logo.svg" />
+    <!-- Descarga la especificación en paralelo para que Scalar la encuentre lista -->
+    <link rel="preload" href="./openapi.json" as="fetch" crossorigin />
+
+    <style>
+      /* ── Tokens de marca (logo: degradado amarillo → verde) ─────────── */
+      :root,
+      .scalar-app,
+      body {
+        --scalar-font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji' !important;
+        --scalar-font-code: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, 'Liberation Mono', monospace !important;
+        --scalar-radius: 6px !important;
+        --scalar-radius-lg: 8px !important;
+        --scalar-radius-xl: 10px !important;
+        --bv-yellow: #eab308;
+        --bv-green: #16a34a;
+        --bv-gradient: linear-gradient(135deg, var(--bv-yellow), var(--bv-green));
+        font-kerning: normal;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        margin: 0;
+        background: #09090b;
+      }
+
+      .dark-mode {
+        --scalar-background-1: #09090b !important;
+        --scalar-background-2: #121214 !important;
+        --scalar-background-3: #1c1c1f !important;
+        --scalar-background-accent: rgba(34, 197, 94, 0.12) !important;
+        --scalar-color-1: #fafafa !important;
+        --scalar-color-2: #a1a1aa !important;
+        --scalar-color-3: #71717a !important;
+        --scalar-color-accent: #22c55e !important;
+        --scalar-link-color-hover: #4ade80 !important;
+        --scalar-border-color: rgba(255, 255, 255, 0.08) !important;
+        --scalar-sidebar-item-active-background: rgba(34, 197, 94, 0.1) !important;
+        --scalar-sidebar-color-active: #4ade80 !important;
+      }
+
+      .light-mode {
+        --scalar-background-1: #ffffff !important;
+        --scalar-background-2: #f6f7f6 !important;
+        --scalar-background-3: #ececec !important;
+        --scalar-background-accent: rgba(22, 163, 74, 0.1) !important;
+        --scalar-color-1: #09090b !important;
+        --scalar-color-2: #3f3f46 !important;
+        --scalar-color-3: #71717a !important;
+        --scalar-color-accent: #15803d !important;
+        --scalar-link-color-hover: #166534 !important;
+        --scalar-border-color: rgba(9, 9, 11, 0.1) !important;
+        --scalar-sidebar-item-active-background: rgba(22, 163, 74, 0.1) !important;
+        --scalar-sidebar-color-active: #15803d !important;
+      }
+
+      body:has(.light-mode) {
+        background: #ffffff;
+      }
+
+      /* ── Barra de progreso y pantalla de carga ─────────────────────── */
+      #bv-scroll-progress {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 0;
+        height: 3px;
+        background: var(--bv-gradient);
+        z-index: 9999;
+        transition: width 0.1s ease-out;
+        pointer-events: none;
+      }
+
+      #bv-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: #09090b;
+        z-index: 9998;
+        transition: opacity 0.3s ease;
+      }
+      #bv-loader img {
+        width: 52px;
+        height: 52px;
+        animation: bv-pulse 1.4s infinite ease-in-out;
+      }
+      #bv-loader span {
+        font: 700 15px/1 ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: -0.01em;
+        color: #a1a1aa;
+      }
+      @keyframes bv-pulse {
+        0%, 100% { opacity: 0.45; transform: scale(0.96); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+
+      /* ── Cabecera propia del sidebar ───────────────────────────────── */
+      .bv-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 18px 12px 14px 16px;
+        border-bottom: 1px solid var(--scalar-border-color);
+        margin-bottom: 8px;
+      }
+      .bv-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        text-decoration: none;
+        color: var(--scalar-color-1);
+      }
+      .bv-brand img {
+        width: 30px;
+        height: 30px;
+        flex-shrink: 0;
+      }
+      .bv-brand-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        line-height: 1.15;
+      }
+      .bv-brand-name {
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        white-space: nowrap;
+      }
+      .bv-brand-sub {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--scalar-color-3);
+      }
+      .bv-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #fff;
+        background: var(--bv-gradient);
+      }
+      .bv-icon-link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        flex-shrink: 0;
+        border-radius: 6px;
+        color: var(--scalar-color-2);
+        transition: color 0.15s ease, background 0.15s ease;
+      }
+      .bv-icon-link:hover {
+        color: var(--scalar-color-1);
+        background: var(--scalar-background-2);
+      }
+      .bv-icon-link svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      /* Se oculta el título por defecto (ya está en la cabecera propia) y el botón de MCP */
+      .t-doc__sidebar .sidebar-heading,
+      .t-doc__sidebar [class*='sidebar-title'],
+      .scalar-mcp-layer {
+        display: none !important;
+      }
+
+      /* ── Métodos HTTP como pastillas ───────────────────────────────── */
+      .sidebar-heading-type {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-width: 44px !important;
+        padding: 1px 5px !important;
+        border-radius: 4px !important;
+        background: color-mix(in srgb, currentColor 14%, transparent) !important;
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent) !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.02em !important;
+      }
+
+      /* ── Tarjetas laterales de la introducción ─────────────────────── */
+      .bv-card {
+        border: 1px solid var(--scalar-border-color);
+        border-radius: 10px;
+        overflow: hidden;
+        font-family: var(--scalar-font);
+        background: var(--scalar-background-1);
+      }
+      .bv-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--scalar-color-1);
+        background: var(--scalar-background-2);
+        border-bottom: 1px solid var(--scalar-border-color);
+      }
+      .bv-card-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 12px;
+        font-size: 12.5px;
+        color: var(--scalar-color-2);
+      }
+      .bv-card-row + .bv-card-row {
+        border-top: 1px solid var(--scalar-border-color);
+      }
+      .bv-card-row b {
+        font-family: var(--scalar-font-code);
+        font-weight: 500;
+        color: var(--scalar-color-1);
+        white-space: nowrap;
+      }
+      .bv-card a {
+        color: var(--scalar-color-accent);
+        font-size: 12px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .bv-card a:hover {
+        color: var(--scalar-link-color-hover);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      .bv-dot {
+        display: inline-block;
+        width: 7px;
+        height: 7px;
+        margin-right: 6px;
+        border-radius: 50%;
+        background: var(--scalar-color-accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--scalar-color-accent) 22%, transparent);
+      }
+
+      /* ── Introducción: tipografía, avisos, tablas y código ─────────── */
+      .introduction-section .section-header-label {
+        font-size: 34px !important;
+        line-height: 1.1 !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.03em !important;
+      }
+      .introduction-section .introduction-description > .introduction-description-heading:first-child .markdown p:first-child {
+        max-width: 60ch !important;
+        font-size: 18px !important;
+        line-height: 1.6 !important;
+        font-weight: 500 !important;
+        color: var(--scalar-color-1) !important;
+      }
+      .introduction-section .markdown p {
+        line-height: 1.65 !important;
+        color: var(--scalar-color-1) !important;
+      }
+      .introduction-section .markdown h2 {
+        margin-top: 52px !important;
+        margin-bottom: 14px !important;
+        padding-bottom: 0 !important;
+        border-bottom: none !important;
+        font-size: 23px !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.02em !important;
+        color: var(--scalar-color-1) !important;
+      }
+      .introduction-section .markdown hr {
+        display: none !important;
+      }
+      .introduction-section .markdown .bv-notice {
+        margin: 24px 0 8px !important;
+        padding: 16px 18px !important;
+        border-radius: 10px !important;
+        border: 1px solid color-mix(in srgb, var(--scalar-color-accent) 22%, transparent) !important;
+        background: color-mix(in srgb, var(--scalar-color-accent) 8%, var(--scalar-background-1)) !important;
+        color: var(--scalar-color-1) !important;
+        font-size: 15px !important;
+        line-height: 1.55 !important;
+      }
+      .introduction-section .markdown blockquote {
+        margin: 0 0 16px !important;
+        padding: 12px 16px !important;
+        border: none !important;
+        border-left: 3px solid var(--scalar-color-accent) !important;
+        border-radius: 8px !important;
+        background: color-mix(in srgb, var(--scalar-color-accent) 7%, var(--scalar-background-1)) !important;
+      }
+      .introduction-section .markdown blockquote p,
+      .introduction-section .markdown blockquote li {
+        margin: 0 !important;
+        font-size: 14px !important;
+        line-height: 1.6 !important;
+        color: var(--scalar-color-1) !important;
+      }
+      .introduction-section .markdown table {
+        display: table !important;
+        width: 100% !important;
+        border-collapse: separate !important;
+        border-spacing: 0 !important;
+        border: 1px solid var(--scalar-border-color) !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+        margin: 12px 0 24px !important;
+        font-size: 14px !important;
+        font-variant-numeric: tabular-nums !important;
+      }
+      .introduction-section .markdown th {
+        padding: 8px 12px !important;
+        text-align: left !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.08em !important;
+        text-transform: uppercase !important;
+        white-space: nowrap !important;
+        color: var(--scalar-color-2) !important;
+        background: var(--scalar-background-2) !important;
+        border: none !important;
+        border-bottom: 1px solid var(--scalar-border-color) !important;
+      }
+      .introduction-section .markdown td {
+        padding: 10px 12px !important;
+        line-height: 1.5 !important;
+        vertical-align: top !important;
+        color: var(--scalar-color-1) !important;
+        border: none !important;
+        border-bottom: 1px solid var(--scalar-border-color) !important;
+      }
+      .introduction-section .markdown tr:last-child td {
+        border-bottom: none !important;
+      }
+      .introduction-section .markdown tr:nth-child(even) td {
+        background: color-mix(in srgb, var(--scalar-color-1) 3%, transparent) !important;
+      }
+      .introduction-section .markdown table.bv-errors {
+        table-layout: fixed !important;
+      }
+      .introduction-section .markdown table.bv-errors th:first-child {
+        width: 84px !important;
+      }
+      .introduction-section .markdown table.bv-errors th:last-child {
+        width: 34% !important;
+      }
+      .introduction-section .markdown :not(pre) > code {
+        padding: 1px 5px !important;
+        border: none !important;
+        border-radius: 4px !important;
+        font-size: 12.5px !important;
+        color: var(--scalar-color-accent) !important;
+        background: color-mix(in srgb, var(--scalar-color-accent) 11%, transparent) !important;
+      }
+      .introduction-section .markdown strong {
+        font-weight: 600 !important;
+        color: var(--scalar-color-1) !important;
+      }
+      .introduction-section .markdown a {
+        color: var(--scalar-color-accent) !important;
+        text-decoration: none !important;
+        font-weight: 500 !important;
+      }
+      .introduction-section .markdown li {
+        margin-bottom: 6px !important;
+        line-height: 1.65 !important;
+        color: var(--scalar-color-1) !important;
+      }
+
+      @media (max-width: 720px) {
+        .introduction-section .section-header-label {
+          font-size: 28px !important;
+        }
+        .introduction-section .introduction-description > .introduction-description-heading:first-child .markdown p:first-child {
+          font-size: 16px !important;
+        }
+        .introduction-section .markdown h2 {
+          margin-top: 40px !important;
+          font-size: 19px !important;
+        }
+        .introduction-section .markdown table {
+          display: block !important;
+          overflow-x: auto !important;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #bv-loader img {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="bv-scroll-progress"></div>
+    <div id="bv-loader">
+      <img src="./logo.svg" alt="" />
+      <span>Buenaventura Reporta API</span>
+    </div>
     <div id="app"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+    <!-- Versión fijada: los estilos de arriba dependen de las clases de esta versión de Scalar -->
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.72.4"></script>
     <script>
+      const SPEC_URL = './openapi.json'
+      const REPO_URL = 'https://github.com/jav-19jm/Documentacion-Buenaventura-Reporta'
+
       Scalar.createApiReference('#app', {
-        // Ruta relativa para que funcione en GitHub Pages (https://<usuario>.github.io/<repo>/)
-        url: './openapi.json',
-        theme: 'purple',
+        url: SPEC_URL,
+        theme: 'default',
         layout: 'modern',
-        defaultHttpClient: { targetKey: 'js', clientKey: 'fetch' },
+        darkMode: true,
+        withDefaultFonts: false,
+        showDeveloperTools: 'never',
+        agent: { disabled: true },
+        defaultOpenAllTags: false,
         hideClientButton: false,
         persistAuth: true,
+        defaultHttpClient: { targetKey: 'js', clientKey: 'fetch' },
         metaData: { title: 'Buenaventura Reporta API' },
       })
+
+      // Textos de la interfaz de Scalar que vienen en inglés
+      const TRADUCCIONES = {
+        Introduction: 'Introducción',
+        Models: 'Modelos',
+        Operations: 'Operaciones',
+        Server: 'Servidor',
+        Authentication: 'Autenticación',
+        'Client Libraries': 'Clientes',
+        'Download OpenAPI Document': 'Descargar OpenAPI',
+        'Test Request': 'Probar petición',
+        Responses: 'Respuestas',
+        Response: 'Respuesta',
+        'Request Body': 'Cuerpo de la petición',
+        'Path Parameters': 'Parámetros de ruta',
+        'Query Parameters': 'Parámetros de consulta',
+        'Show Child Attributes': 'Ver atributos',
+        'Hide Child Attributes': 'Ocultar atributos',
+        'Show More': 'Ver más',
+        'Show Less': 'Ver menos',
+        Search: 'Buscar',
+        required: 'obligatorio',
+        nullable: 'nullable',
+        'No authentication selected': 'Sin autenticación seleccionada',
+        'Select Auth Type': 'Tipo de autenticación',
+        'Powered by Scalar': 'Hecho con Scalar',
+      }
+
+      const ICONO_DESCARGA =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>'
+      const ICONO_GITHUB =
+        '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2.1c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.2 1.9 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.3 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5Z"/></svg>'
+
+      function insertarCabecera(sidebar) {
+        if (sidebar.querySelector('.bv-header')) return
+        const header = document.createElement('div')
+        header.className = 'bv-header'
+        header.innerHTML = `
+          <a class="bv-brand" href="#">
+            <img src="./logo.svg" alt="" />
+            <span class="bv-brand-text">
+              <span class="bv-brand-name">Buenaventura Reporta</span>
+              <span class="bv-brand-sub"><span class="bv-badge">API</span> REST · JWT</span>
+            </span>
+          </a>
+          <a class="bv-icon-link" href="${SPEC_URL}" download="buenaventura-reporta-openapi.json" title="Descargar openapi.json">${ICONO_DESCARGA}</a>
+          <a class="bv-icon-link" href="${REPO_URL}" target="_blank" rel="noopener noreferrer" title="Repositorio en GitHub">${ICONO_GITHUB}</a>`
+        sidebar.insertBefore(header, sidebar.firstChild)
+      }
+
+      function tarjeta(id, titulo, extra, filas) {
+        const div = document.createElement('div')
+        div.id = id
+        div.className = 'bv-card'
+        div.innerHTML =
+          `<div class="bv-card-header"><span>${titulo}</span>${extra || ''}</div>` +
+          filas.map(([etiqueta, valor]) => `<div class="bv-card-row"><span>${etiqueta}</span><b>${valor}</b></div>`).join('')
+        return div
+      }
+
+      function insertarTarjetas() {
+        const servidor = document.querySelector('.introduction-card .scalar-reference-intro-server')
+        if (!servidor || document.getElementById('bv-card-version')) return
+
+        const version = tarjeta('bv-card-version', 'Versión de la API', `<a href="${SPEC_URL}" target="_blank">openapi.json ↗</a>`, [
+          ['<span class="bv-dot"></span>Versión', '1.0.0'],
+          ['Especificación', 'OpenAPI 3.0.3'],
+          ['Formato', 'JSON'],
+        ])
+        const token = tarjeta('bv-card-token', 'Token JWT', '', [
+          ['Duración', '60 min'],
+          ['Ventana de renovación', '14 días'],
+          ['Cabecera', 'Authorization: Bearer'],
+        ])
+        const limites = tarjeta('bv-card-limites', 'Límites de peticiones', '', [
+          ['Sesión y registro', '10 / min'],
+          ['Recuperación de cuenta', '5 / min'],
+          ['Crear reportes', '10 / min'],
+          ['Votos', '30 / min'],
+          ['Mensajes del chat', '20 / min'],
+          ['Denuncias', '5 / min'],
+        ])
+
+        servidor.after(version, token, limites)
+      }
+
+      function traducir() {
+        const walker = document.createTreeWalker(document.getElementById('app'), NodeFilter.SHOW_TEXT)
+        for (let nodo = walker.nextNode(); nodo; nodo = walker.nextNode()) {
+          const texto = nodo.nodeValue.trim()
+          if (texto && Object.hasOwn(TRADUCCIONES, texto)) {
+            nodo.nodeValue = nodo.nodeValue.replace(texto, TRADUCCIONES[texto])
+          }
+        }
+        const busqueda = document.querySelector('.sidebar-search-placeholder')
+        if (busqueda && busqueda.textContent.trim() === 'Search') busqueda.textContent = 'Buscar'
+      }
+
+      function mejorar() {
+        const sidebar = document.querySelector('aside.t-doc__sidebar')
+        if (!sidebar) return
+
+        const loader = document.getElementById('bv-loader')
+        if (loader) {
+          loader.style.opacity = '0'
+          setTimeout(() => loader.remove(), 300)
+        }
+
+        insertarCabecera(sidebar)
+        insertarTarjetas()
+        traducir()
+      }
+
+      // Scalar renderiza de forma perezosa: se reaplica en cada cambio del DOM (una vez por frame)
+      let frame = 0
+      new MutationObserver(() => {
+        if (frame) return
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          mejorar()
+        })
+      }).observe(document.body, { childList: true, subtree: true })
+
+      // Barra de progreso de lectura
+      const barra = document.getElementById('bv-scroll-progress')
+      let frameScroll = 0
+      window.addEventListener(
+        'scroll',
+        () => {
+          if (frameScroll) return
+          frameScroll = requestAnimationFrame(() => {
+            frameScroll = 0
+            const doc = document.documentElement
+            const max = doc.scrollHeight - doc.clientHeight
+            barra.style.width = (max > 0 ? (doc.scrollTop / max) * 100 : 0) + '%'
+          })
+        },
+        { passive: true },
+      )
     </script>
   </body>
 </html>

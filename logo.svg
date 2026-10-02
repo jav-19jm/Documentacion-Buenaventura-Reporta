@@ -1,0 +1,20 @@
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo con degradado -->
+  <defs>
+    <linearGradient id="logoGradient" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EAB308"/> <!-- yellow-500 -->
+      <stop offset="100%" stop-color="#16A34A"/> <!-- green-600 -->
+    </linearGradient>
+  </defs>
+  
+  <!-- Rectángulo redondeado con sombra suave -->
+  <rect width="40" height="40" rx="8" fill="url(#logoGradient)" />
+  
+  <!-- Icono MapPin (Lucide) centrado -->
+  <g transform="translate(8, 8)">
+    <path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" 
+          stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="12" cy="10" r="3" 
+            stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
